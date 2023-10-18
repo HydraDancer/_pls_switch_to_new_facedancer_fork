@@ -7,13 +7,13 @@ Supports 4 high-speed endpoints, with addresses between 1 and 7.
 import sys
 import logging
 import usb
-from usb.util import *
+from usb.util import CTRL_TYPE_VENDOR, CTRL_RECIPIENT_DEVICE, CTRL_IN, CTRL_OUT, ENDPOINT_IN
 import time
-import struct
 from array import array
 
 from ..core import FacedancerApp
 from ..USBDevice import USBDevice
+
 
 class HydradancerHostApp(FacedancerApp):
     """
@@ -33,7 +33,7 @@ class HydradancerHostApp(FacedancerApp):
     USB2_FS = 1  # full-speed
     USB2_HS = 2  # high-speed
 
-    usb2_speed = USB2_FS  #  default to full-speed
+    usb2_speed = USB2_FS  # default to full-speed
 
     configuration = None
     pending_control_out_request = None
@@ -323,6 +323,7 @@ class HydradancerHostApp(FacedancerApp):
 class HydradancerBoardFatalError(Exception):
     pass
 
+
 class HydradancerBoard():
     """
     Handles the communication with the Hydradancer control board and manages the events it sends.
@@ -395,7 +396,7 @@ class HydradancerBoard():
                 try:
                     self.device.detach_kernel_driver(intf.bInterfaceNumber)
                 except usb.core.USBError as e:
-                    sys.exit("Could not detatch kernel driver from interface({0}): {1}".format(
+                    sys.exit("Could not detach kernel driver from interface({0}): {1}".format(
                         intf.bInterfaceNumber, str(e)))
 
         # store the different endpoints handles we need
@@ -470,7 +471,8 @@ class HydradancerBoard():
 
     def disconnect(self):
         """
-        Disable the USB2 connection on the emulation board, and reset internal states on both control and emulation boards.
+        Disable the USB2 connection on the emulation board,
+        and reset internal states on both control and emulation boards.
         """
         try:
             self.device.ctrl_transfer(
@@ -482,7 +484,8 @@ class HydradancerBoard():
 
     def wait_board_ready(self):
         """
-        Wait until the Hydradancer boards are ready, try to disconnect at some point to reset the internal states, hoping it will be ready next time.
+        Wait until the Hydradancer boards are ready, try to disconnect at some point to reset the internal states,
+        hoping it will be ready next time.
         """
         #  num of checks before trying to disconnect
         max_num_status_ready_before_disconnect = 100
@@ -495,19 +498,22 @@ class HydradancerBoard():
         try:
             # check if the board is ready a first time
             hydradancer_ready = self.device.ctrl_transfer(
-                CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.CHECK_HYDRADANCER_READY, data_or_wLength=1, timeout=5)
+                CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.CHECK_HYDRADANCER_READY,
+                data_or_wLength=1, timeout=5)
 
-            # repeat max_num_status_ready times
+            # repeat max_num_status_ready_before_disconnect times
             while (hydradancer_ready is None or hydradancer_ready == 0) and count_disconnect < max_disconnect:
                 count_status_ready += 1
-                if count_status_ready % max_num_status_ready == 0 and count_disconnect < max_disconnect:
+                if count_status_ready % max_num_status_ready_before_disconnect == 0 and \
+                   count_disconnect < max_disconnect:
                     logging.info(
                         "This is taking too long, disconnecting again ...")
                     self.disconnect()
                     time.sleep(time_after_disconnect_sec)
                     count_disconnect += 1
                 hydradancer_ready = self.device.ctrl_transfer(
-                    CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.CHECK_HYDRADANCER_READY, data_or_wLength=1, timeout=5)
+                    CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.CHECK_HYDRADANCER_READY,
+                    data_or_wLength=1, timeout=5)
                 time.sleep(time_between_checks_sec)
 
             # if hydradancer is still not ready
@@ -526,8 +532,9 @@ class HydradancerBoard():
         self.endpoints_mapping[ep_num] = self.endpoints_pool.pop()
         self.reverse_endpoints_mapping[self.endpoints_mapping[ep_num]] = ep_num
         try:
-            self.device.ctrl_transfer(CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_ENDPOINT_MAPPING, wValue=(
-                ep_num & 0x00ff) | ((self.endpoints_mapping[ep_num] << 8) & 0xff00))
+            self.device.ctrl_transfer(CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT,
+                                      self.SET_ENDPOINT_MAPPING, wValue=(
+                                          ep_num & 0x00ff) | ((self.endpoints_mapping[ep_num] << 8) & 0xff00))
         except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
             logging.error(exception)
             raise HydradancerBoardFatalError(
@@ -535,7 +542,8 @@ class HydradancerBoard():
 
     def set_usb2_speed(self, usb2_speed):
         """
-        Set the speed of the USB2 device. Speed is physically determined by the host, so the emulation board must be configured.
+        Set the speed of the USB2 device. Speed is physically determined by the host,
+        so the emulation board must be configured.
         """
         try:
             self.device.ctrl_transfer(
@@ -558,16 +566,20 @@ class HydradancerBoard():
 
     def stall_endpoint(self, ep_num, direction=0):
         """
-        Stall the ep_num endpoint on the emulation board. STALL will be cleared automatically after next SETUP packet received.
-        Currently stalls both directions, because ep0 was STALLED only in one direction (TODO maybe separate ep0 from the rest, and double-check).
+        Stall the ep_num endpoint on the emulation board.
+        STALL will be cleared automatically after next SETUP packet received.
+        Currently stalls both directions, because ep0 was STALLED only in one direction
+        (TODO maybe separate ep0 from the rest, and double-check).
         """
         # Stall EP IN and OUT, then set them to ACK again
         # direction does not seem to be used (at least for EP0), so stalling would only happen for direction = 0 (OUT)
         try:
             self.device.ctrl_transfer(
-                CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_EP_RESPONSE, wValue=(ep_num | 0 << 7) | (self.ENDP_STATE_STALL << 8) & 0xff00)
+                CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_EP_RESPONSE, wValue=(ep_num | 0 << 7) |
+                (self.ENDP_STATE_STALL << 8) & 0xff00)
             self.device.ctrl_transfer(
-                CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_EP_RESPONSE, wValue=(ep_num | 1 << 7) | (self.ENDP_STATE_STALL << 8) & 0xff00)
+                CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_EP_RESPONSE, wValue=(ep_num | 1 << 7) |
+                (self.ENDP_STATE_STALL << 8) & 0xff00)
         except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
             logging.error(exception)
             raise HydradancerBoardFatalError(f"Could not stall ep {ep_num}")
@@ -577,8 +589,7 @@ class HydradancerBoard():
         Prime target endpoint ep_num. If blocking=True, it will wait for the endpoint's buffer to be empty.
         """
         try:
-            sent = self.ep_out[self.endpoints_mapping[ep_num]].write(
-                data)
+            self.ep_out[self.endpoints_mapping[ep_num]].write(data)
             self.ep_status &= ~(0x01 << ep_num)
             if blocking:
                 while not self.IN_buffer_empty(ep_num):
@@ -615,18 +626,22 @@ class HydradancerBoard():
 
     def fetch_events(self):
         """
-        Poll the status of the endpoints. The state are accumulated (like on the boards), and cleared when sending or reading data (which will trigger a similar clear on the boards).
+        Poll the status of the endpoints. The state are accumulated (like on the boards),
+        and cleared when sending or reading data (which will trigger a similar clear on the boards).
         Thus, self.ep_status should always be in sync with the endpoint's status on the boards.
         """
         try:
             # Use the endpoint type that best fits the type of request :
-            # -> for control requests, polling using ctrl transfers garanties the fastest status update. Latency is key in the enumeration phase
-            # -> for bulk requests, polling using bulk transfers allows for more status updates to be sent, thus increasing the speed
+            # -> for control requests, polling using ctrl transfers garanties the fastest status update.
+            #     Latency is key in the enumeration phase
+            # -> for bulk requests, polling using bulk transfers allows for more status updates to be sent,
+            #    thus increasing the speed
             #  TODO : what about interrupt or isochronous transfers ?
 
             if not self.configured:
                 read = self.device.ctrl_transfer(
-                    CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.GET_EP_STATUS, data_or_wLength=self.new_ep_status, timeout=self.timeout_ms_poll)
+                    CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.GET_EP_STATUS,
+                    data_or_wLength=self.new_ep_status, timeout=self.timeout_ms_poll)
             else:
                 read = self.ep_poll.read(
                     self.new_ep_status, timeout=self.timeout_ms_poll)
