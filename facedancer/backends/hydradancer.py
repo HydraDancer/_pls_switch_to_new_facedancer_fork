@@ -321,6 +321,9 @@ class HydradancerHostApp(FacedancerApp):
                 self.handle_data_endpoints_legacy()
 
 
+class HydradancerBoardFatalError(Exception):
+    pass
+
 class HydradancerBoard():
     """
     Handles the communication with the Hydradancer control board and manages the events it sends.
@@ -349,9 +352,12 @@ class HydradancerBoard():
     ENDP_STATE_STALL = 0x03
 
     # Endpoints available on the control board for mapping (to the emulated device endpoints)
-    endpoints_pool = [1, 2, 3, 4, 5]
+    endpoints_pool = None
     endpoints_mapping = {}  # emulated endpoint -> control board endpoint
     reverse_endpoints_mapping = {}  # control_board_endpoint -> emulated_endpoint
+
+    EP_POLL_NUMBER = 6
+    EP_LOG_NUMBER = 7
 
     # True when SET_CONFIGURATION has been received and the Hydradancer boards are configured
     configured = False
@@ -375,11 +381,11 @@ class HydradancerBoard():
         self.device = usb.core.find(idVendor=0x16c0, idProduct=0x27d8)
 
         if self.device is None:
-            raise ValueError('Device not found')
-        if self.device.speed == usb.util.SPEED_HIGH:
-            logging.debug("USB20 High-speed")
-        elif self.device.speed == usb.util.SPEED_SUPER:
-            logging.debug("USB30 Superspeed burst")
+            raise HydradancerBoardFatalError("Hydradancer board not found")
+
+        if self.device.speed != usb.util.SPEED_SUPER:
+            raise HydradancerBoardFatalError(
+                "Hydradancer not detected as USB3 Superspeed")
 
         cfg = self.device.get_active_configuration()
         intf = cfg[(0, 0)]
@@ -397,23 +403,23 @@ class HydradancerBoard():
         self.ep_in = list(usb.util.find_descriptor(
             intf,
             find_all=True,
-            # match the first OUT endpoint
-            custom_match=lambda e: \
-            usb.util.endpoint_direction(e.bEndpointAddress) == \
-            usb.util.ENDPOINT_IN and usb.util.endpoint_address(e.bEndpointAddress) != \
-            7))
+            custom_match=lambda e:
+            usb.util.endpoint_direction(e.bEndpointAddress) ==
+            usb.util.ENDPOINT_IN and usb.util.endpoint_address(e.bEndpointAddress) !=
+            self.EP_POLL_NUMBER and usb.util.endpoint_address(e.bEndpointAddress) !=
+            self.EP_LOG_NUMBER))
 
         self.ep_in = {usb.util.endpoint_address(
             e.bEndpointAddress): e for e in self.ep_in}
 
         self.ep_out = list(usb.util.find_descriptor(
             intf,
-            # match the first OUT endpoint
             find_all=True,
-            custom_match=lambda e: \
-            usb.util.endpoint_direction(e.bEndpointAddress) == \
-            usb.util.ENDPOINT_OUT and usb.util.endpoint_address(e.bEndpointAddress) != \
-            7))
+            custom_match=lambda e:
+            usb.util.endpoint_direction(e.bEndpointAddress) ==
+            usb.util.ENDPOINT_OUT and usb.util.endpoint_address(e.bEndpointAddress) !=
+            self.EP_POLL_NUMBER and usb.util.endpoint_address(e.bEndpointAddress) !=
+            self.EP_LOG_NUMBER))
 
         self.ep_out = {usb.util.endpoint_address(
             ep.bEndpointAddress): ep for ep in self.ep_out}
@@ -421,11 +427,33 @@ class HydradancerBoard():
         # the endpoint on which status information is received
         self.ep_poll = usb.util.find_descriptor(
             intf,
-            # match the first OUT endpoint
-            custom_match=lambda e: \
-            usb.util.endpoint_direction(e.bEndpointAddress) == \
-            usb.util.ENDPOINT_IN and usb.util.endpoint_address(e.bEndpointAddress) == \
-            6)
+            custom_match=lambda e:
+            usb.util.endpoint_direction(e.bEndpointAddress) ==
+            usb.util.ENDPOINT_IN and usb.util.endpoint_address(e.bEndpointAddress) ==
+            self.EP_POLL_NUMBER)
+
+        if len(self.ep_in.keys()) == 0 and len(self.ep_out.keys()) == 0:
+            logging.info("Dumping device configuration \r\n" + str(cfg))
+            raise HydradancerBoardFatalError(
+                "Could not fetch Hydradancer IN and OUT endpoints list")
+        if len(self.ep_in.keys()) == 0:
+            logging.info("Dumping device configuration \r\n" + str(cfg))
+            raise HydradancerBoardFatalError(
+                "Could not fetch Hydradancer IN endpoints list")
+        if len(self.ep_out.keys()) == 0:
+            logging.info("Dumping device configuration \r\n" + str(cfg))
+            raise HydradancerBoardFatalError(
+                "Could not fetch Hydradancer OUT endpoints list")
+        if self.ep_out.keys() != self.ep_in.keys():
+            logging.info("Dumping device configuration \r\n" + str(cfg))
+            raise HydradancerBoardFatalError(
+                f"Hydradancer IN/OUT endpoints pair incomplete \r\nep_in {self.ep_in} \r\nep_out {self.ep_out}")
+        if self.ep_poll is None:
+            logging.info("Dumping device configuration \r\n" + str(cfg))
+            raise HydradancerBoardFatalError(
+                f"Could not get handle on Hydradancer events endpoint (EP {self.EP_POLL_NUMBER})")
+
+        self.endpoints_pool = list(self.ep_in.keys())
 
         # wait until the board is ready, for instance if a disconnect was previously issued
         self.wait_board_ready()
@@ -438,7 +466,8 @@ class HydradancerBoard():
             self.device.ctrl_transfer(
                 CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.ENABLE_USB_CONNECTION_REQUEST_CODE)
         except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
-            logging.error("Error, unable to connect")
+            logging.error(exception)
+            raise HydradancerBoardFatalError("Error, unable to connect")
 
     def disconnect(self):
         """
@@ -449,7 +478,8 @@ class HydradancerBoard():
                 CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.DISABLE_USB)
             usb.util.dispose_resources(self.device)
         except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
-            logging.error("Error, unable to disconnect")
+            logging.error(exception)
+            raise HydradancerBoardFatalError("Error, unable to disconnect")
 
     def wait_board_ready(self):
         """
@@ -480,10 +510,15 @@ class HydradancerBoard():
                 hydradancer_ready = self.device.ctrl_transfer(
                     CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.CHECK_HYDRADANCER_READY, data_or_wLength=1, timeout=5)
                 time.sleep(time_between_checks_sec)
+
+            # if hydradancer is still not ready
+            if hydradancer_ready == 0:
+                raise HydradancerBoardFatalError(
+                    "Hydradancer is not ready, please reset the board")
         except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
-            logging.error("Unable to get status ready from hydradancer")
-            logging.info("disconnect")
-            self.disconnect()
+            logging.error(exception)
+            raise HydradancerBoardFatalError(
+                "USB Error while waiting for Hydradancer go-ahead")
 
     def set_endpoint_mapping(self, ep_num):
         """
@@ -495,8 +530,9 @@ class HydradancerBoard():
             self.device.ctrl_transfer(CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_ENDPOINT_MAPPING, wValue=(
                 ep_num & 0x00ff) | ((self.endpoints_mapping[ep_num] << 8) & 0xff00))
         except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
-            logging.error(f"Could not set mapping for ep {ep_num}")
             logging.error(exception)
+            raise HydradancerBoardFatalError(
+                f"Could not set mapping for ep {ep_num}")
 
     def set_usb2_speed(self, usb2_speed):
         """
@@ -506,7 +542,8 @@ class HydradancerBoard():
             self.device.ctrl_transfer(
                 CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_SPEED, wValue=usb2_speed & 0x00ff)
         except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
-            logging.error("Error, unable to set speed")
+            logging.error(exception)
+            raise HydradancerBoardFatalError("Error, unable to set speed")
 
     def set_address(self, address, defer=False):
         """
@@ -515,8 +552,10 @@ class HydradancerBoard():
         try:
             self.device.ctrl_transfer(
                 CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_ADDRESS_REQUEST_CODE, address)
-        except (usb.core.USBTimeoutError, usb.core.USBError):
-            logging.error("Error, unable to set address on emulated device")
+        except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
+            logging.error(exception)
+            raise HydradancerBoardFatalError(
+                "Error, unable to set address on emulated device")
 
     def stall_endpoint(self, ep_num, direction=0):
         """
@@ -530,8 +569,9 @@ class HydradancerBoard():
                 CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_EP_RESPONSE, wValue=(ep_num | 0 << 7) | (self.ENDP_STATE_STALL << 8) & 0xff00)
             self.device.ctrl_transfer(
                 CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_OUT, self.SET_EP_RESPONSE, wValue=(ep_num | 1 << 7) | (self.ENDP_STATE_STALL << 8) & 0xff00)
-        except (usb.core.USBTimeoutError, usb.core.USBError):
-            logging.error(f"Could not stall ep {ep_num}")
+        except (usb.core.USBTimeoutError, usb.core.USBError) as exception:
+            logging.error(exception)
+            raise HydradancerBoardFatalError(f"Could not stall ep {ep_num}")
 
     def send(self, ep_num, data, blocking=False):
         """
@@ -565,7 +605,7 @@ class HydradancerBoard():
                 return read
             return None
         except (usb.core.USBTimeoutError, usb.core.USBError):
-            logging.info(f"could not read data from ep {ep_num}")
+            logging.error(f"could not read data from ep {ep_num}")
             return None
 
     def configure(self, endpoint_numbers):
@@ -581,11 +621,11 @@ class HydradancerBoard():
         """
         try:
             # Use the endpoint type that best fits the type of request :
-            # -> for control requests, polling using ctrl transfers garanties the fastest status update
+            # -> for control requests, polling using ctrl transfers garanties the fastest status update. Latency is key in the enumeration phase
             # -> for bulk requests, polling using bulk transfers allows for more status updates to be sent, thus increasing the speed
             #  TODO : what about interrupt or isochronous transfers ?
 
-            if self.configured:
+            if not self.configured:
                 read = self.device.ctrl_transfer(
                     CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.GET_EP_STATUS, data_or_wLength=self.new_ep_status, timeout=self.timeout_ms_poll)
             else:
@@ -597,12 +637,12 @@ class HydradancerBoard():
                     self.new_ep_status[1] << 8)
                 logging.debug(f"EP status {bin(self.ep_status)}")
                 return True
-
+            return False
         except usb.core.USBTimeoutError:
             return False
         except usb.core.USBError as exception:
             logging.error(exception)
-            return False
+            raise HydradancerBoardFatalError("USB Error while fetching events")
 
     def IN_buffer_empty(self, ep_num):
         """
