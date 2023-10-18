@@ -2,7 +2,6 @@
 #
 # Contains class definitions to implement a USB keyboard.
 
-import greatfet
 import random
 
 from facedancer.USB import *

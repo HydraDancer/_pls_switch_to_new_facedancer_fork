@@ -15,7 +15,6 @@ from array import array
 from ..core import FacedancerApp
 from ..USBDevice import USBDevice
 
-
 class HydradancerHostApp(FacedancerApp):
     """
     Backend for the HydraUSB3 boards.
