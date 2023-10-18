@@ -581,11 +581,11 @@ class HydradancerBoard():
         """
         try:
             # Use the endpoint type that best fits the type of request :
-            # -> for control requests, polling using ctrl transfers garanties the fastest status update
+            # -> for control requests, polling using ctrl transfers garanties the fastest status update. Latency is key in the enumeration phase
             # -> for bulk requests, polling using bulk transfers allows for more status updates to be sent, thus increasing the speed
             #  TODO : what about interrupt or isochronous transfers ?
 
-            if self.configured:
+            if not self.configured:
                 read = self.device.ctrl_transfer(
                     CTRL_TYPE_VENDOR | CTRL_RECIPIENT_DEVICE | CTRL_IN, self.GET_EP_STATUS, data_or_wLength=self.new_ep_status, timeout=self.timeout_ms_poll)
             else:
