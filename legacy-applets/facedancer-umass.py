@@ -16,7 +16,7 @@
 #   # losetup -d /dev/loopX
 
 import sys
-
+import argparse
 from serial import Serial, PARITY_NONE
 
 from facedancer import FacedancerUSBApp
@@ -92,13 +92,14 @@ class RawDiskImage(DiskImage):
         self.image.flush()
 
 
-if len(sys.argv)==1:
-    print("Usage: facedancer-umass.py disk.img");
-    sys.exit(1);
+parser = argparse.ArgumentParser(prog='facedancer-umass', description = 'Emulates a USB Mass Storage in Fullspeed or Highspeed')
+parser.add_argument('disk_img', metavar="disk.img")
+parser.add_argument('--highspeed', action="store_true")
+args = parser.parse_args()
 
 u = FacedancerUSBApp(verbose=3)
-i = RawDiskImage(sys.argv[1], 512, verbose=3)
-d = USBMassStorageDevice(u, i, verbose=3)
+i = RawDiskImage(args.disk_img, 512, verbose=3)
+d = USBMassStorageDevice(u, i, highspeed = args.highspeed, verbose=3)
 
 d.connect()
 
