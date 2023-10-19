@@ -51,7 +51,7 @@ class USBMassStorageInterface(USBInterface):
     STATUS_FAILURE    = 0x02 # TODO: Should this be 0x01?
     STATUS_INCOMPLETE = -1   # Special case status that aborts before response.
 
-    def __init__(self, disk_image, verbose=0):
+    def __init__(self, disk_image, highspeed = False,verbose=0):
         self.disk_image = disk_image
         descriptors = { }
 
@@ -61,7 +61,7 @@ class USBMassStorageInterface(USBInterface):
                 USBEndpoint.transfer_type_bulk,
                 USBEndpoint.sync_type_none,
                 USBEndpoint.usage_type_data,
-                64,         # max packet size
+                512 if highspeed else 64,         # max packet size
                 0,          # polling interval, see USB 2.0 spec Table 9-13
                 self.handle_data_available    # handler function
         )
@@ -71,7 +71,7 @@ class USBMassStorageInterface(USBInterface):
                 USBEndpoint.transfer_type_bulk,
                 USBEndpoint.sync_type_none,
                 USBEndpoint.usage_type_data,
-                64,         # max packet size
+                512 if highspeed else 64,         # max packet size
                 0,          # polling interval, see USB 2.0 spec Table 9-13
                 None        # handler function
         )
@@ -387,10 +387,13 @@ class CommandBlockWrapper:
 class USBMassStorageDevice(USBDevice):
     name = "USB mass storage device"
 
-    def __init__(self, maxusb_app, disk_image, verbose=0):
+    def __init__(self, maxusb_app, disk_image, highspeed = False, verbose=0):
         self.disk_image = disk_image
 
-        interface = USBMassStorageInterface(self.disk_image, verbose=verbose)
+        if highspeed:
+            self.usb2_speed = 2 # USB2_HS
+
+        interface = USBMassStorageInterface(self.disk_image,  highspeed = highspeed, verbose=verbose)
 
         config = USBConfiguration(
                 1,                                          # index
