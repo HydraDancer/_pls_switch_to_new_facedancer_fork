@@ -369,8 +369,7 @@ class HydradancerBoard():
     endpoints_mapping = {}  # emulated endpoint -> control board endpoint
     reverse_endpoints_mapping = {}  # control_board_endpoint -> emulated_endpoint
 
-    EP_POLL_NUMBER = 6
-    EP_LOG_NUMBER = 7
+    EP_POLL_NUMBER = 1
 
     # True when SET_CONFIGURATION has been received and the Hydradancer boards are configured
     configured = False
@@ -423,8 +422,7 @@ class HydradancerBoard():
             custom_match=lambda e:
             usb.util.endpoint_direction(e.bEndpointAddress) ==
             usb.util.ENDPOINT_IN and usb.util.endpoint_address(e.bEndpointAddress) !=
-            self.EP_POLL_NUMBER and usb.util.endpoint_address(e.bEndpointAddress) !=
-            self.EP_LOG_NUMBER))
+            self.EP_POLL_NUMBER))
 
         self.ep_in = {usb.util.endpoint_address(
             e.bEndpointAddress): e for e in self.ep_in}
@@ -435,8 +433,7 @@ class HydradancerBoard():
             custom_match=lambda e:
             usb.util.endpoint_direction(e.bEndpointAddress) ==
             usb.util.ENDPOINT_OUT and usb.util.endpoint_address(e.bEndpointAddress) !=
-            self.EP_POLL_NUMBER and usb.util.endpoint_address(e.bEndpointAddress) !=
-            self.EP_LOG_NUMBER))
+            self.EP_POLL_NUMBER))
 
         self.ep_out = {usb.util.endpoint_address(
             ep.bEndpointAddress): ep for ep in self.ep_out}
