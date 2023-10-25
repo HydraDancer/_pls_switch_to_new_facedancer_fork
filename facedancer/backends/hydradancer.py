@@ -371,6 +371,8 @@ class HydradancerBoard():
 
     EP_POLL_NUMBER = 1
 
+    SUPPORTED_EP_NUM = [0, 1, 2, 3, 4, 5, 6, 7]
+
     # True when SET_CONFIGURATION has been received and the Hydradancer boards are configured
     configured = False
 
@@ -543,6 +545,9 @@ class HydradancerBoard():
         """
         Maps emulated endpoints (endpoints facing the target) to Facedancer's host endpoints (control board endpoints)
         """
+        if ep_num not in self.SUPPORTED_EP_NUM:
+            raise HydradancerBoardFatalError(
+                f"Endpoint number {ep_num} not supported, supported numbers : {self.SUPPORTED_EP_NUM}")
         self.endpoints_mapping[ep_num] = self.endpoints_pool.pop()
         self.reverse_endpoints_mapping[self.endpoints_mapping[ep_num]] = ep_num
         try:
