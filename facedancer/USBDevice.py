@@ -572,6 +572,6 @@ class USBDeviceRequest:
     def get_index(self):
         rec = self.get_recipient()
         if rec == 1:                # interface
-            return self.index
+            return self.index & 0xff
         elif rec == 2:              # endpoint
             return self.index & 0x0f
