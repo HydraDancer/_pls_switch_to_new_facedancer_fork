@@ -24,6 +24,8 @@ class HydradancerHostApp(FacedancerApp):
     """
     app_name = "Hydradancer Host"
 
+    MANUFACTURER_STRING = "Quarkslab https://www.quarkslab.com/ & HydraBus https://hydrabus.com/"
+
     # USB directions
     HOST_TO_DEVICE = 0
     DEVICE_TO_HOST = 1
@@ -56,7 +58,7 @@ class HydradancerHostApp(FacedancerApp):
         # Open a connection to the target device...
         device = usb.core.find(idVendor=0x16c0, idProduct=0x27d8)
 
-        if device is not None and backend_name == "hydradancer":
+        if device is not None and device.manufacturer == cls.MANUFACTURER_STRING and backend_name == "hydradancer":
             return True
 
         return False
